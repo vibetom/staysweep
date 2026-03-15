@@ -18,6 +18,8 @@ import os
 from rich.console import Console
 from .base import BaseCrawler
 
+MAX_HOTELS = int(os.getenv("MAX_HOTELS_PER_SOURCE", "20"))
+
 console = Console()
 
 YELP_API_BASE = "https://api.yelp.com/v3"
@@ -38,8 +40,8 @@ class YelpCrawler(BaseCrawler):
         console.print(f"[bold blue]🕷 Yelp[/] crawling hotels in [italic]{city}[/]...")
 
         if not self.api_key:
-            console.print("[yellow]⚠ No YELP_API_KEY — using prototype stub data[/]")
-            return self._stub_data(city)
+            console.print("[yellow]⚠ No YELP_API_KEY — skipping Yelp[/]")
+            return []
 
         return await self._crawl_via_api(city)
 
@@ -51,17 +53,17 @@ class YelpCrawler(BaseCrawler):
                 "term": "hotels",
                 "location": city,
                 "categories": "hotels",
-                "limit": 10,
+                "limit": MAX_HOTELS,
                 "sort_by": "rating",
             }
         )
 
         if not data or "businesses" not in data:
-            console.print(f"[yellow]⚠ Yelp API error — using stub data[/]")
-            return self._stub_data(city)
+            console.print(f"[yellow]⚠ Yelp API error — skipping Yelp[/]")
+            return []
 
         results = []
-        for biz in data["businesses"][:8]:
+        for biz in data["businesses"][:MAX_HOTELS]:
             hotel = {
                 "name": biz.get("name", "Unknown"),
                 "source": self.source_name,
@@ -109,56 +111,3 @@ class YelpCrawler(BaseCrawler):
                     })
         return reviews
 
-    def _stub_data(self, city: str) -> list[dict]:
-        return [
-            {
-                "name": "The Grand Luxe Hotel",
-                "source": self.source_name,
-                "source_url": f"https://www.yelp.com/biz/grand-luxe-{city.lower().replace(' ', '-')}",
-                "city": city,
-                "rating": 4.5,
-                "address": f"123 Main Street, {city}",
-                "reviews": [
-                    {
-                        "text": "Wow the lobby decor is something else. Those deep purple couches are iconic — "
-                                "everyone takes photos on them.",
-                        "source": "yelp", "author": "SarahM.", "rating": 5,
-                        "review_url": "https://www.yelp.com/biz/stub1",
-                    },
-                ],
-                "images": [
-                    {
-                        "url": "https://s3-media1.fl.yelpcdn.com/bphoto/stub/grand_luxe_lobby.jpg",
-                        "source": "yelp", "image_type": "official", "caption": "",
-                    },
-                ],
-            },
-            {
-                "name": "Boutique Inn & Suites",
-                "source": self.source_name,
-                "source_url": f"https://www.yelp.com/biz/boutique-inn-{city.lower().replace(' ', '-')}",
-                "city": city,
-                "rating": 4.8,
-                "address": f"789 Design District, {city}",
-                "reviews": [
-                    {
-                        "text": "This place is a photographer's dream. The sitting area has this incredible "
-                                "dark purple velvet sofa that looks amazing.",
-                        "source": "yelp", "author": "MikeR.", "rating": 5,
-                        "review_url": "https://www.yelp.com/biz/stub2",
-                    },
-                    {
-                        "text": "Unique boutique hotel with very specific design choices. "
-                                "Love the purple and gold color palette in the common areas.",
-                        "source": "yelp", "author": "TravelBlog22", "rating": 4,
-                        "review_url": "https://www.yelp.com/biz/stub3",
-                    },
-                ],
-                "images": [
-                    {
-                        "url": "https://s3-media1.fl.yelpcdn.com/bphoto/stub/boutique_lounge.jpg",
-                        "source": "yelp", "image_type": "guest", "caption": "",
-                    },
-                ],
-            },
-        ]

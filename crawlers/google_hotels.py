@@ -12,6 +12,8 @@ import os
 from rich.console import Console
 from .base import BaseCrawler
 
+MAX_HOTELS = int(os.getenv("MAX_HOTELS_PER_SOURCE", "20"))
+
 console = Console()
 
 PLACES_API_BASE = "https://maps.googleapis.com/maps/api/place"
@@ -31,8 +33,8 @@ class GoogleHotelsCrawler(BaseCrawler):
         console.print(f"[bold blue]🕷 Google Hotels[/] crawling hotels in [italic]{city}[/]...")
 
         if not self.api_key:
-            console.print("[yellow]⚠ No GOOGLE_PLACES_API_KEY — using prototype stub data[/]")
-            return self._stub_data(city)
+            console.print("[yellow]⚠ No GOOGLE_PLACES_API_KEY — skipping Google Hotels[/]")
+            return []
 
         return await self._crawl_via_api(city)
 
@@ -45,10 +47,10 @@ class GoogleHotelsCrawler(BaseCrawler):
 
         if not data or data.get("status") not in ("OK", "ZERO_RESULTS"):
             console.print(f"[yellow]⚠ Google Places API error: {data.get('status', 'unknown')}[/]")
-            return self._stub_data(city)
+            return []
 
         results = []
-        for place in data.get("results", [])[:8]:
+        for place in data.get("results", [])[:MAX_HOTELS]:
             hotel = {
                 "name": place.get("name", "Unknown"),
                 "source": self.source_name,
@@ -103,37 +105,3 @@ class GoogleHotelsCrawler(BaseCrawler):
             return data.get("result", {})
         return None
 
-    def _stub_data(self, city: str) -> list[dict]:
-        return [
-            {
-                "name": "The Grand Luxe Hotel",
-                "source": self.source_name,
-                "source_url": f"https://maps.google.com/stub/grand-luxe-{city.lower().replace(' ', '_')}",
-                "city": city,
-                "rating": 4.4,
-                "address": f"123 Main Street, {city}",
-                "reviews": [
-                    {"text": "Great hotel! The lobby design is incredible — dark purple sofas everywhere.",
-                     "source": "google", "author": "TravellerJoe", "rating": 5,
-                     "review_url": "https://maps.google.com/stub/review1"},
-                ],
-                "images": [
-                    {"url": "https://lh3.googleusercontent.com/stub/lobby.jpg",
-                     "source": "google", "image_type": "official", "caption": "Lobby"},
-                ],
-            },
-            {
-                "name": "Skyline Suites",
-                "source": self.source_name,
-                "source_url": f"https://maps.google.com/stub/skyline-{city.lower().replace(' ', '_')}",
-                "city": city,
-                "rating": 4.0,
-                "address": f"456 Tower Ave, {city}",
-                "reviews": [
-                    {"text": "Nice views from the upper floors. Decor is very contemporary and minimalist.",
-                     "source": "google", "author": "BusinessTraveler", "rating": 4,
-                     "review_url": "https://maps.google.com/stub/review2"},
-                ],
-                "images": [],
-            },
-        ]

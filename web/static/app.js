@@ -82,7 +82,10 @@ form.addEventListener('submit', async (e) => {
             // Increment progress slightly with each result
             const analysisPct = 55 + Math.min(40, resultCount * 4);
             setProgress(analysisPct, `Analyzed ${resultCount} hotels...`);
-            addResultCard(result, resultCount);
+            // Only show hotels with meaningful match during streaming
+            if (result.final_score > 0.1) {
+                addResultCard(result, resultCount);
+            }
         });
 
         evtSource.addEventListener('complete', (e) => {
@@ -92,13 +95,27 @@ form.addEventListener('submit', async (e) => {
             searchBtn.textContent = 'Search';
             evtSource.close();
 
-            // Re-sort and re-render cards in final order
+            // Re-sort and re-render — only show hotels with meaningful match scores
+            resultsGrid.innerHTML = '';
+            const MATCH_THRESHOLD = 0.1;
+
             if (data.results && data.results.length > 0) {
-                resultsGrid.innerHTML = '';
-                data.results.forEach((r, i) => addResultCard(r, i + 1));
-                resultsTitle.textContent = `${data.results.length} hotels analyzed for "${query}" in ${city}`;
+                const matches = data.results.filter(r => r.final_score > MATCH_THRESHOLD);
+                const totalSearched = data.results.length;
+
+                if (matches.length > 0) {
+                    // Show matching hotels
+                    let rank = 1;
+                    matches.forEach((r) => addResultCard(r, rank++));
+                    resultsTitle.textContent = `${matches.length} match${matches.length === 1 ? '' : 'es'} found`;
+                } else {
+                    resultsTitle.textContent = 'No matching hotels found.';
+                }
+
+                // Add search summary below results
+                addSearchSummary(totalSearched, matches.length, query, city, data.results);
             } else {
-                resultsTitle.textContent = 'No matching hotels found.';
+                resultsTitle.textContent = 'No hotels found — check that API keys are configured.';
             }
 
             // Fade out progress bar
@@ -204,4 +221,49 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// ── Search summary ──────────────────────────────────────
+
+function addSearchSummary(totalSearched, matchCount, query, city, allResults) {
+    // Remove any existing summary
+    const existing = document.getElementById('search-summary');
+    if (existing) existing.remove();
+
+    const summary = document.createElement('div');
+    summary.id = 'search-summary';
+    summary.className = 'search-summary';
+
+    // Build list of all hotels searched (names only)
+    const hotelNames = allResults.map(r => r.hotel_name);
+    const sources = [...new Set(allResults.map(r => {
+        const url = r.hotel_url || '';
+        if (url.includes('tripadvisor')) return 'TripAdvisor';
+        if (url.includes('google')) return 'Google';
+        if (url.includes('booking')) return 'Booking.com';
+        if (url.includes('yelp')) return 'Yelp';
+        return 'Web';
+    }))];
+
+    summary.innerHTML = `
+        <div class="summary-header">Search Summary</div>
+        <div class="summary-stats">
+            <span><strong>${totalSearched}</strong> hotels searched in ${escapeHtml(city)}</span>
+            <span><strong>${matchCount}</strong> potential match${matchCount === 1 ? '' : 'es'}</span>
+            <span>Sources: ${sources.join(', ')}</span>
+        </div>
+        <details class="summary-details">
+            <summary>Hotels searched (${totalSearched})</summary>
+            <ul class="searched-hotels-list">
+                ${hotelNames.map(n => {
+                    const result = allResults.find(r => r.hotel_name === n);
+                    const score = result ? Math.round(result.final_score * 100) : 0;
+                    const icon = score > 10 ? '&#9679;' : '&#9675;';
+                    return `<li>${icon} ${escapeHtml(n)} <span class="mini-pct">${score}%</span></li>`;
+                }).join('')}
+            </ul>
+        </details>
+    `;
+
+    resultsGrid.parentNode.appendChild(summary);
 }

@@ -9,9 +9,12 @@ This prototype uses httpx with fallback to stub data.
 A note on Playwright integration is included for production upgrade.
 """
 
+import os
 from urllib.parse import quote_plus
 from rich.console import Console
 from .base import BaseCrawler
+
+MAX_HOTELS = int(os.getenv("MAX_HOTELS_PER_SOURCE", "20"))
 
 console = Console()
 
@@ -31,8 +34,8 @@ class BookingCrawler(BaseCrawler):
         soup = await self.fetch_html(url)
 
         if soup is None:
-            console.print("[yellow]⚠ Booking.com blocked — using prototype stub data[/]")
-            return self._stub_data(city)
+            console.print("[yellow]⚠ Booking.com blocked — skipping[/]")
+            return []
 
         # Booking.com renders hotel cards in JS — if we get a response,
         # try to parse SSR markup (sometimes present)
@@ -41,11 +44,11 @@ class BookingCrawler(BaseCrawler):
                  soup.select('[data-hotelid]'))
 
         if not cards:
-            console.print("[yellow]⚠ Booking.com: JS-gated page, no cards found — using stub[/]")
-            return self._stub_data(city)
+            console.print("[yellow]⚠ Booking.com: JS-gated page, no cards found — skipping[/]")
+            return []
 
         results = []
-        for card in cards[:8]:
+        for card in cards[:MAX_HOTELS]:
             name_el = (card.select_one('[data-testid="title"]') or
                        card.select_one('.sr-hotel__name') or
                        card.select_one('span.sr-hotel__name'))
@@ -77,40 +80,3 @@ class BookingCrawler(BaseCrawler):
         console.print(f"[green]✓ Booking.com[/] found {len(results)} hotels")
         return results
 
-    def _stub_data(self, city: str) -> list[dict]:
-        return [
-            {
-                "name": "Boutique Inn & Suites",
-                "source": self.source_name,
-                "source_url": f"https://www.booking.com/hotel/stub/boutique-inn-{city.lower().replace(' ', '-')}.html",
-                "city": city,
-                "rating": 9.2,
-                "reviews": [
-                    {"text": "The hotel is decorated with the most lush, dark purple velvet couches I have ever seen in a lobby. Absolute vibe.",
-                     "source": "booking", "review_url": "https://booking.com/stub/r1"},
-                    {"text": "Rooms are tastefully decorated. The lounge area is particularly impressive with its purple and gold color scheme.",
-                     "source": "booking", "review_url": "https://booking.com/stub/r2"},
-                ],
-                "images": [
-                    {"url": "https://cf.bstatic.com/xdata/stub/boutique_main.jpg",
-                     "source": "booking", "image_type": "official", "caption": "Hotel lobby"},
-                    {"url": "https://cf.bstatic.com/xdata/stub/boutique_couch.jpg",
-                     "source": "booking", "image_type": "official", "caption": "Seating area"},
-                ],
-            },
-            {
-                "name": "The Grand Luxe Hotel",
-                "source": self.source_name,
-                "source_url": f"https://www.booking.com/hotel/stub/grand-luxe-{city.lower().replace(' ', '-')}.html",
-                "city": city,
-                "rating": 8.8,
-                "reviews": [
-                    {"text": "Excellent stay. Stunning lobby with dramatic purple furniture.",
-                     "source": "booking", "review_url": "https://booking.com/stub/r3"},
-                ],
-                "images": [
-                    {"url": "https://cf.bstatic.com/xdata/stub/grand_luxe_lobby.jpg",
-                     "source": "booking", "image_type": "official", "caption": "Grand lobby"},
-                ],
-            },
-        ]
