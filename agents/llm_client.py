@@ -2,7 +2,7 @@
 LLM Client Wrapper
 -------------------
 Thin abstraction over the AI model provider.
-Currently uses Google Gemini 2.0 Flash (free tier: 15 RPM, 1M tokens/day).
+Uses Google Gemini free tier with automatic retry and model fallback.
 
 All agent modules call these two functions instead of a provider SDK directly,
 making it trivial to swap models in the future.
@@ -19,6 +19,15 @@ from google.genai import types
 
 _client = None
 
+# Models to try in order — if one hits quota, fall back to the next
+MODELS = [
+    "gemini-2.5-flash",
+    "gemini-1.5-flash",
+]
+
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 5  # seconds
+
 
 def _get_client():
     global _client
@@ -30,9 +39,6 @@ def _get_client():
     return _client
 
 
-MODEL = "gemini-2.0-flash"
-
-
 def _clean_json(raw: str) -> str:
     """Strip markdown code fences that Gemini sometimes wraps around JSON."""
     raw = raw.strip()
@@ -41,23 +47,59 @@ def _clean_json(raw: str) -> str:
     return raw.strip()
 
 
+async def _call_with_retry(generate_fn):
+    """
+    Call a Gemini generate function with retry logic and model fallback.
+    generate_fn takes a model name and returns the response.
+    """
+    last_error = None
+
+    for model in MODELS:
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = await asyncio.to_thread(generate_fn, model)
+                return _clean_json(response.text)
+            except Exception as e:
+                last_error = e
+                error_str = str(e)
+
+                # If quota exhausted or model unavailable, try next model
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str or "404" in error_str or "NOT_FOUND" in error_str:
+                    if attempt < MAX_RETRIES - 1:
+                        delay = RETRY_BASE_DELAY * (attempt + 1)
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        # Exhausted retries for this model, try next
+                        break
+                else:
+                    # Non-quota error, raise immediately
+                    raise
+
+    raise RuntimeError(
+        f"All Gemini models exhausted. Last error: {last_error}\n"
+        f"Tried models: {MODELS}\n"
+        f"Fix: Go to https://aistudio.google.com/apikey and ensure your API key "
+        f"has the Generative Language API enabled with free tier quota."
+    )
+
+
 async def chat(system_prompt: str, user_content: str, max_tokens: int = 1000) -> str:
     """Text-only LLM call. Returns the model's text response."""
     client = _get_client()
 
-    config = types.GenerateContentConfig(
-        system_instruction=system_prompt,
-        max_output_tokens=max_tokens,
-    )
+    def generate(model):
+        config = types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            max_output_tokens=max_tokens,
+        )
+        return client.models.generate_content(
+            model=model,
+            contents=user_content,
+            config=config,
+        )
 
-    response = await asyncio.to_thread(
-        client.models.generate_content,
-        model=MODEL,
-        contents=user_content,
-        config=config,
-    )
-
-    return _clean_json(response.text)
+    return await _call_with_retry(generate)
 
 
 async def chat_with_images(
@@ -84,16 +126,15 @@ async def chat_with_images(
         parts.append(types.Part.from_bytes(data=img_bytes, mime_type=media_type))
     parts.append(types.Part.from_text(text=text_prompt))
 
-    config = types.GenerateContentConfig(
-        system_instruction=system_prompt,
-        max_output_tokens=max_tokens,
-    )
+    def generate(model):
+        config = types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            max_output_tokens=max_tokens,
+        )
+        return client.models.generate_content(
+            model=model,
+            contents=parts,
+            config=config,
+        )
 
-    response = await asyncio.to_thread(
-        client.models.generate_content,
-        model=MODEL,
-        contents=parts,
-        config=config,
-    )
-
-    return _clean_json(response.text)
+    return await _call_with_retry(generate)
