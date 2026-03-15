@@ -22,7 +22,6 @@ _client = None
 # Models to try in order — if one hits quota, fall back to the next
 MODELS = [
     "gemini-2.5-flash",
-    "gemini-2.0-flash-lite",
     "gemini-1.5-flash",
 ]
 
