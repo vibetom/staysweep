@@ -21,8 +21,8 @@ _client = None
 
 # Models to try in order — if one hits quota, fall back to the next
 MODELS = [
+    "gemini-2.5-flash",
     "gemini-2.0-flash-lite",
-    "gemini-2.0-flash",
     "gemini-1.5-flash",
 ]
 
@@ -64,8 +64,8 @@ async def _call_with_retry(generate_fn):
                 last_error = e
                 error_str = str(e)
 
-                # If quota exhausted, try next model
-                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                # If quota exhausted or model unavailable, try next model
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str or "404" in error_str or "NOT_FOUND" in error_str:
                     if attempt < MAX_RETRIES - 1:
                         delay = RETRY_BASE_DELAY * (attempt + 1)
                         await asyncio.sleep(delay)
