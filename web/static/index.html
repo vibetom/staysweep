@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StaySweep — Find Any Hotel Feature</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1 class="logo">StaySweep</h1>
+            <p class="tagline">Find hyper-specific hotel features using AI vision + review analysis</p>
+        </header>
+
+        <!-- Search Form -->
+        <form id="search-form" class="search-form">
+            <div class="form-row">
+                <div class="input-group">
+                    <label for="query">What are you looking for?</label>
+                    <input type="text" id="query" name="query"
+                           placeholder='e.g. "dark purple couch"' required>
+                </div>
+                <div class="input-group input-city">
+                    <label for="city">City</label>
+                    <input type="text" id="city" name="city"
+                           placeholder='e.g. "New York"' required>
+                </div>
+                <button type="submit" id="search-btn" class="btn-search">Search</button>
+            </div>
+        </form>
+
+        <!-- Example Queries -->
+        <div class="examples">
+            <span class="examples-label">Try:</span>
+            <button class="chip" data-query="dark purple couch" data-city="New York">purple couch in NYC</button>
+            <button class="chip" data-query="rooftop pool with mountain views" data-city="Denver">rooftop pool in Denver</button>
+            <button class="chip" data-query="fireplace in the room" data-city="Aspen">fireplace in Aspen</button>
+            <button class="chip" data-query="pink neon sign in lobby" data-city="Las Vegas">neon lobby in Vegas</button>
+            <button class="chip" data-query="claw foot bathtub" data-city="New Orleans">clawfoot tub in NOLA</button>
+        </div>
+
+        <!-- Progress Section -->
+        <div id="progress-section" class="progress-section hidden">
+            <div class="progress-bar-track">
+                <div id="progress-bar" class="progress-bar"></div>
+            </div>
+            <div id="progress-text" class="progress-text">Starting search...</div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results-section" class="results-section hidden">
+            <h2 id="results-title" class="results-title"></h2>
+            <div id="results-grid" class="results-grid"></div>
+        </div>
+
+        <!-- Empty State -->
+        <div id="empty-state" class="empty-state">
+            <div class="empty-icon">&#x1F3E8;</div>
+            <p>Search for any hotel feature — things no booking site lets you filter for.</p>
+            <p class="empty-sub">StaySweep crawls reviews and photos from TripAdvisor, Google, Booking.com, and Yelp, then uses AI to find exact matches.</p>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

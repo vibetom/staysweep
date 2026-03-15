@@ -1,7 +1,7 @@
 """
-Hotel Hunter — Test Suite
+StaySweep — Test Suite
 --------------------------
-Tests the full pipeline using stub crawlers and mocked Claude API responses.
+Tests the full pipeline using stub crawlers and mocked LLM responses.
 Run with: python test_pipeline.py
 
 Tests:
@@ -9,7 +9,7 @@ Tests:
   2. Crawler stub data format
   3. Image ranker priority logic
   4. Scorer weighted math
-  5. Full end-to-end pipeline (with mocked Claude calls)
+  5. Full end-to-end pipeline (with mocked LLM calls)
   6. Cost estimator calculations
 """
 
@@ -200,29 +200,26 @@ def test_cost_estimator():
     try:
         est = estimate_cost(10)
         assert est["n_hotels"] == 10
-        assert est["total_cost_usd"] > 0
-        assert est["total_cost_usd"] < 5.0, f"10 hotels shouldn't cost >$5, got ${est['total_cost_usd']}"
+        assert est["total_cost_usd"] == 0.0, "Should be free on Gemini free tier"
         assert "breakdown" in est
         assert all(k in est["breakdown"] for k in
                    ["query_parsing", "text_analysis", "vision_analysis", "scoring"])
 
-        T.ok(f"Cost estimator - 10 hotels ≈ ${est['total_cost_usd']:.3f}")
+        T.ok(f"Cost estimator - 10 hotels = $0.00 (free tier)")
 
-        # Vision should dominate cost
-        breakdown = est["breakdown"]
-        assert breakdown["vision_analysis"] > breakdown["text_analysis"], \
-            "Vision should cost more than text"
-        T.ok("Cost estimator - vision > text cost")
+        # Token estimates should still be tracked
+        assert est["total_input_tokens"] > 0, "Should still track token usage"
+        T.ok("Cost estimator - token tracking works")
 
     except AssertionError as e:
         T.fail("Cost estimator", str(e))
 
 
-# ─── 5. Mock Claude integration ───────────────────────────────────────────────
+# ─── 5. Mock LLM integration ─────────────────────────────────────────────────
 
 def test_mock_query_parser():
-    """Test the query parser agent with a mocked Claude response."""
-    print("\n[5] Query parser (mocked Claude)")
+    """Test the query parser agent with a mocked LLM response."""
+    print("\n[5] Query parser (mocked LLM)")
 
     mock_response_json = json.dumps({
         "visual_features": ["dark purple couch", "deep plum velvet sofa"],
@@ -232,14 +229,7 @@ def test_mock_query_parser():
         "summary": "Looking for a hotel with a dark purple couch"
     })
 
-    mock_content = MagicMock()
-    mock_content.text = mock_response_json
-    mock_message = MagicMock()
-    mock_message.content = [mock_content]
-
-    with patch("agents.query_parser.client") as mock_client:
-        mock_client.messages.create.return_value = mock_message
-
+    with patch("agents.llm_client.chat", new_callable=AsyncMock, return_value=mock_response_json):
         result = asyncio.get_event_loop().run_until_complete(
             __import__("agents.query_parser", fromlist=["parse_query"]).parse_query(
                 "Find me a hotel with a dark purple couch"
@@ -308,7 +298,7 @@ def test_hotel_deduplication():
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("Hotel Hunter — Pipeline Test Suite")
+    print("StaySweep — Pipeline Test Suite")
     print("=" * 50)
 
     test_crawler_stubs()

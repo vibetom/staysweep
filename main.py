@@ -1,5 +1,5 @@
 """
-Hotel Hunter — Main Orchestrator
+StaySweep — Main Orchestrator
 ==================================
 Coordinates all agents in parallel:
 
@@ -21,7 +21,10 @@ import argparse
 import json
 from pathlib import Path
 from datetime import datetime
+from dotenv import load_dotenv
 from rich.console import Console
+
+load_dotenv(Path(__file__).parent / ".env")
 from rich.panel import Panel
 from rich.table import Table
 from rich import box
@@ -125,10 +128,11 @@ async def persist_hotels(hotels: list[dict], db) -> dict[str, int]:
 
 # ─── Step 3: Analyze each hotel in parallel ──────────────────────────────────
 
-async def analyze_hotel(hotel: dict, parsed_query: dict, raw_query: str) -> dict:
+async def analyze_hotel(hotel: dict, parsed_query: dict, raw_query: str,
+                         on_result=None) -> dict:
     """
     Run text + vision analysis in parallel for a single hotel.
-    Text runs first; if it scores very low we skip the vision pass to save cost.
+    Text runs first; if it scores very low we skip the vision pass.
     Returns a scored result dict.
     """
     hotel_name = hotel["name"]
@@ -159,22 +163,26 @@ async def analyze_hotel(hotel: dict, parsed_query: dict, raw_query: str) -> dict
         vision_result=vision_result,
     )
 
+    # Notify callback with individual result (for streaming to web UI)
+    if on_result:
+        await on_result(result)
+
     return result
 
 
 async def analyze_all_hotels_parallel(hotels: list[dict], parsed_query: dict,
-                                       raw_query: str) -> list[dict]:
+                                       raw_query: str, on_result=None) -> list[dict]:
     """
     Analyze all hotels concurrently — each hotel gets its own text+vision agents.
-    Semaphore limits to 5 parallel analyses to avoid API rate limits.
+    Semaphore limits to 3 parallel analyses to respect Gemini free tier rate limits.
     """
     console.print(f"\n[bold]Step 3: Running parallel analysis on {len(hotels)} hotels...[/]")
 
-    sem = asyncio.Semaphore(5)
+    sem = asyncio.Semaphore(3)
 
     async def bounded_analyze(hotel):
         async with sem:
-            return await analyze_hotel(hotel, parsed_query, raw_query)
+            return await analyze_hotel(hotel, parsed_query, raw_query, on_result=on_result)
 
     tasks = [bounded_analyze(hotel) for hotel in hotels]
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -205,7 +213,7 @@ async def save_results(results: list[dict], name_to_id: dict, raw_query: str, db
 def print_report(results: list[dict], raw_query: str, city: str):
     console.print()
     console.print(Panel(
-        f"[bold]Hotel Hunter Results[/]\n"
+        f"[bold]StaySweep Results[/]\n"
         f"Query: [italic cyan]{raw_query}[/]\n"
         f"City: [italic]{city}[/]",
         box=box.DOUBLE_EDGE,
@@ -264,43 +272,50 @@ def print_report(results: list[dict], raw_query: str, city: str):
     console.print(f"[dim]Full results saved to: {report_path}[/]")
 
 
-# ─── Main entry point ────────────────────────────────────────────────────────
+# ─── Pipeline runner (used by both CLI and web) ──────────────────────────────
 
-async def run(raw_query: str, city: str):
-    console.print(Panel(
-        f"[bold cyan]🏨 Hotel Hunter[/]\n"
-        f"Finding: [italic]{raw_query}[/]\n"
-        f"City: [italic]{city}[/]",
-        box=box.ROUNDED
-    ))
+async def run_pipeline(raw_query: str, city: str, on_progress=None, on_result=None):
+    """
+    Core pipeline logic. Accepts optional callbacks:
+      on_progress(event_dict) — called at each step for status updates
+      on_result(result_dict)  — called when each hotel analysis completes
+    Returns the sorted list of results.
+    """
+    async def progress(step, message, **extra):
+        if on_progress:
+            await on_progress({"step": step, "message": message, **extra})
+
+    await progress("init", f"Starting search: '{raw_query}' in {city}")
 
     # Init DB
     await init_db()
 
     async with aiosqlite.connect(DB_PATH) as db:
         # Step 1: Parse query
-        console.print(f"\n[bold]Step 0: Parsing query...[/]")
+        await progress("parsing", "Parsing your query with AI...")
         parsed_query = await parse_query(raw_query)
-        console.print(f"  Keywords: {parsed_query['text_keywords']}")
-        console.print(f"  Visual:   {parsed_query['visual_features']}")
-        console.print(f"  Context:  {parsed_query['context']}")
+        await progress("parsed", "Query parsed",
+                        keywords=parsed_query.get("text_keywords", []),
+                        visual=parsed_query.get("visual_features", []))
 
         # Step 2: Crawl all sources in parallel
+        await progress("crawling", f"Crawling hotel sources for {city}...")
         hotels = await crawl_all_sources(city, db)
+        await progress("crawled", f"Found {len(hotels)} unique hotels",
+                        hotel_count=len(hotels))
 
         # Step 3: Persist to DB
-        console.print(f"\n[bold]Step 2: Persisting {len(hotels)} hotels to database...[/]")
+        await progress("persisting", "Saving hotel data...")
         name_to_id = await persist_hotels(hotels, db)
 
-        # Step 3b: Official website enrichment (parallel, best-effort)
-        console.print(f"\n[bold]Step 2b: Enriching with official hotel website photos...[/]")
+        # Step 3b: Official website enrichment
+        await progress("enriching", "Checking official hotel websites...")
         official_crawler = OfficialWebsiteCrawler()
         enrich_tasks = [official_crawler.enrich_hotel_with_official_photos(h) for h in hotels]
         enrich_results = await asyncio.gather(*enrich_tasks, return_exceptions=True)
         for hotel, extra_images in zip(hotels, enrich_results):
             if isinstance(extra_images, list) and extra_images:
                 hotel["images"].extend(extra_images)
-                # Persist the new images
                 async with aiosqlite.connect(DB_PATH) as db2:
                     hotel_id = name_to_id.get(hotel["name"])
                     if hotel_id:
@@ -309,23 +324,40 @@ async def run(raw_query: str, city: str):
                                                img.get("caption"), img.get("image_type", "official"))
         await official_crawler.close()
 
-        # Step 3c: Rank images per hotel before analysis
-        console.print(f"\n[bold]Step 2c: Ranking images for vision analysis...[/]")
+        # Step 3c: Rank images
         for hotel in hotels:
             hotel["images"] = rank_and_filter_images(hotel["images"], parsed_query, max_images=8)
 
-        # Step 4: Parallel analysis (text + vision per hotel, hotels in parallel)
-        results = await analyze_all_hotels_parallel(hotels, parsed_query, raw_query)
+        # Step 4: Parallel analysis
+        await progress("analyzing", f"Analyzing {len(hotels)} hotels with AI (text + vision)...",
+                        hotel_count=len(hotels))
+        results = await analyze_all_hotels_parallel(hotels, parsed_query, raw_query,
+                                                     on_result=on_result)
 
         # Step 5: Save analysis results
         await save_results(results, name_to_id, raw_query, db)
 
-    # Step 6: Print report
+    await progress("complete", f"Search complete — {len(results)} hotels analyzed")
+    return results
+
+
+# ─── CLI entry point ─────────────────────────────────────────────────────────
+
+async def run(raw_query: str, city: str):
+    """CLI wrapper around run_pipeline that prints rich output."""
+    console.print(Panel(
+        f"[bold cyan]🏨 StaySweep[/]\n"
+        f"Finding: [italic]{raw_query}[/]\n"
+        f"City: [italic]{city}[/]",
+        box=box.ROUNDED
+    ))
+
+    results = await run_pipeline(raw_query, city)
     print_report(results, raw_query, city)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Hotel Hunter — Find specific features in hotels")
+    parser = argparse.ArgumentParser(description="StaySweep — Find specific features in hotels")
     parser.add_argument("--query", "-q", required=True,
                         help='Feature to search for, e.g. "dark purple couch"')
     parser.add_argument("--city", "-c", required=True,

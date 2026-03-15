@@ -7,12 +7,11 @@ Takes text + vision analysis results for a hotel and produces:
   - A structured result dict for the output report
 """
 
-import anthropic
 import json
 from rich.console import Console
+from agents.llm_client import chat
 
 console = Console()
-client = anthropic.Anthropic()
 
 
 def compute_final_score(text_score: float, vision_score: float,
@@ -41,7 +40,7 @@ def compute_final_score(text_score: float, vision_score: float,
 
 async def generate_summary(hotel_name: str, query: str, final_score: float,
                             text_result: dict, vision_result: dict) -> str:
-    """Uses Claude to write a concise, evidence-backed summary for the result."""
+    """Uses the LLM to write a concise, evidence-backed summary for the result."""
     if final_score < 0.1:
         return f"No evidence found that {hotel_name} has this feature."
 
@@ -58,19 +57,15 @@ async def generate_summary(hotel_name: str, query: str, final_score: float,
         "vision_reasoning": vision_result.get("reasoning", ""),
     }
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=300,
-        system="""Write a concise, helpful 2-3 sentence summary for a hotel match result.
+    raw = await chat(
+        system_prompt="""Write a concise, helpful 2-3 sentence summary for a hotel match result.
 Be specific about the evidence. Mention what reviewers said and/or what was seen in photos.
 Don't be generic. Start with the confidence level naturally woven in.""",
-        messages=[{
-            "role": "user",
-            "content": f"Write a match summary for: {json.dumps(prompt_data)}"
-        }]
+        user_content=f"Write a match summary for: {json.dumps(prompt_data)}",
+        max_tokens=300,
     )
 
-    return response.content[0].text.strip()
+    return raw
 
 
 async def score_and_summarize(hotel_name: str, hotel_url: str, hotel_rating: float | None,

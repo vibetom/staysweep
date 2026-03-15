@@ -1,5 +1,5 @@
 """
-Interactive Hotel Hunter CLI
+Interactive StaySweep CLI
 ------------------------------
 Run without arguments for an interactive session:
     python cli.py
@@ -11,10 +11,13 @@ Or pass args directly:
 import asyncio
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.panel import Panel
 from rich import box
+
+load_dotenv(Path(__file__).parent / ".env")
 
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -36,7 +39,7 @@ EXAMPLE_QUERIES = [
 
 def show_banner():
     console.print(Panel(
-        "[bold cyan]🏨 Hotel Hunter[/]\n"
+        "[bold cyan]🏨 StaySweep[/]\n"
         "[dim]Find hyper-specific hotel features using AI vision + review analysis[/]",
         box=box.DOUBLE_EDGE,
         padding=(1, 4),
@@ -78,7 +81,7 @@ async def interactive_session():
 async def main():
     import argparse
     parser = argparse.ArgumentParser(
-        description="Hotel Hunter — Find specific features in hotels using AI"
+        description="StaySweep — Find specific features in hotels using AI"
     )
     parser.add_argument("--query", "-q", help='Feature to find, e.g. "dark purple couch"')
     parser.add_argument("--city", "-c", help='City to search in, e.g. "New York"')

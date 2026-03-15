@@ -1,24 +1,23 @@
 """
 Vision Analysis Agent
 ---------------------
-Given a hotel's image URLs and a parsed query, uses Claude vision to:
+Given a hotel's image URLs and a parsed query, uses the LLM vision to:
   1. Download and analyze each image
   2. Score each image for presence of the target feature
   3. Return the best-matching images with descriptions
 
-Runs concurrently across hotels. Images are fetched and base64-encoded
-before sending to Claude (avoids URL-loading issues with some CDNs).
+Runs concurrently across hotels. Images are fetched as raw bytes
+before sending to the model.
 """
 
 import asyncio
 import base64
 import httpx
-import anthropic
 import json
 from rich.console import Console
+from agents.llm_client import chat_with_images
 
 console = Console()
-client = anthropic.Anthropic()
 
 # Max images to analyze per hotel — controls cost
 MAX_IMAGES_PER_HOTEL = 8
@@ -27,8 +26,8 @@ MAX_IMAGES_PER_HOTEL = 8
 MIN_IMAGE_BYTES = 5_000
 
 
-async def fetch_image_as_base64(url: str) -> tuple[str, str] | None:
-    """Returns (base64_data, media_type) or None if fetch fails."""
+async def fetch_image_bytes(url: str) -> tuple[bytes, str] | None:
+    """Returns (raw_bytes, media_type) or None if fetch fails."""
     try:
         async with httpx.AsyncClient(timeout=15.0) as client_http:
             resp = await client_http.get(url, follow_redirects=True,
@@ -40,9 +39,8 @@ async def fetch_image_as_base64(url: str) -> tuple[str, str] | None:
                 media_type = "image/jpeg"  # default fallback
             if len(resp.content) < MIN_IMAGE_BYTES:
                 return None
-            b64 = base64.standard_b64encode(resp.content).decode("utf-8")
-            return b64, media_type
-    except Exception as e:
+            return resp.content, media_type
+    except Exception:
         return None
 
 
@@ -65,43 +63,34 @@ async def analyze_images(hotel_name: str, images: list[dict], parsed_query: dict
     console.print(f"  [cyan]👁 Vision[/] analyzing {len(to_analyze)} images for {hotel_name}...")
 
     # Fetch all images concurrently
-    fetch_tasks = [fetch_image_as_base64(img["url"]) for img in to_analyze]
+    fetch_tasks = [fetch_image_bytes(img["url"]) for img in to_analyze]
     fetched = await asyncio.gather(*fetch_tasks)
 
-    # Build vision message content
-    content = []
+    # Build image list for the LLM
+    image_data = []
     valid_images = []
 
-    for i, (img_data, img_meta) in enumerate(zip(to_analyze, fetched)):
-        if img_meta is None:
+    for img_meta, img_result in zip(to_analyze, fetched):
+        if img_result is None:
             continue
-        b64_data, media_type = img_meta
-        content.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": media_type,
-                "data": b64_data,
-            }
-        })
+        raw_bytes, media_type = img_result
+        image_data.append((raw_bytes, media_type))
         valid_images.append({
             "index": len(valid_images) + 1,
-            "url": img_data["url"],
-            "type": img_data.get("image_type", "unknown"),
-            "caption": img_data.get("caption", ""),
+            "url": img_meta["url"],
+            "type": img_meta.get("image_type", "unknown"),
+            "caption": img_meta.get("caption", ""),
         })
 
     if not valid_images:
         console.print(f"  [yellow]⚠ Vision: no loadable images for {hotel_name}[/]")
         return {"score": 0.0, "matching_images": [], "reasoning": "Images could not be loaded"}
 
-    # Add the instruction text
+    # Build the text instruction
     visual_features = parsed_query.get("visual_features", [])
     context_areas = parsed_query.get("context", [])
 
-    content.append({
-        "type": "text",
-        "text": f"""You are analyzing hotel photos for a very specific feature.
+    text_prompt = f"""You are analyzing hotel photos for a very specific feature.
 
 Hotel: {hotel_name}
 Feature to find: {parsed_query.get('summary', '')}
@@ -126,16 +115,15 @@ Return ONLY valid JSON:
 
 Be precise. If you see a couch that is clearly dark purple/plum/violet colored, mark it as a match.
 If the couch is blue, grey, or any other color, it is NOT a match."""
-    })
 
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        raw = await chat_with_images(
+            system_prompt="You are a hotel photo analyst. Analyze images for specific features.",
+            images=image_data,
+            text_prompt=text_prompt,
             max_tokens=1000,
-            messages=[{"role": "user", "content": content}]
         )
 
-        raw = response.content[0].text.strip()
         result = json.loads(raw)
 
         score = result.get("score", 0.0)
