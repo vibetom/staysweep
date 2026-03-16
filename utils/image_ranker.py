@@ -115,15 +115,12 @@ def should_skip_vision(text_score: float, text_evidence: list,
     Fast-path decision: should we skip vision analysis for this hotel?
 
     Returns (skip: bool, reason: str)
+
+    We only skip if there are literally no images. A feature might be
+    visible in photos even when nobody mentions it in reviews — vision
+    analysis is the core differentiator of this tool.
     """
-    # Always skip if no images
     if image_count == 0:
         return True, "no images available"
-
-    # Skip if text is strongly negative — text analysis with 25+ reviews
-    # is a reliable negative signal. Vision might still find something but
-    # the cost/benefit is poor.
-    if text_score < 0.05 and len(text_evidence) == 0:
-        return True, f"text score {text_score:.2f} too low to justify vision cost"
 
     return False, ""

@@ -351,6 +351,68 @@ body {
     opacity: 0.7;
 }
 
+/* ── Search Summary ──────────────────────────────────────── */
+
+.search-summary {
+    margin-top: 2rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+}
+
+.summary-header {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+}
+
+.summary-stats {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    margin-bottom: 0.75rem;
+}
+
+.summary-stats strong {
+    color: var(--text);
+}
+
+.summary-details summary {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+}
+
+.summary-details summary:hover {
+    color: var(--accent-light);
+}
+
+.searched-hotels-list {
+    list-style: none;
+    padding: 0.5rem 0 0 0;
+    columns: 2;
+    column-gap: 1.5rem;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+}
+
+.searched-hotels-list li {
+    padding: 0.15rem 0;
+    break-inside: avoid;
+}
+
+.mini-pct {
+    opacity: 0.5;
+    font-size: 0.75rem;
+}
+
 /* ── Utilities ───────────────────────────────────────────── */
 
 .hidden {

@@ -220,11 +220,19 @@ def print_report(results: list[dict], raw_query: str, city: str):
         style="bold"
     ))
 
-    top = [r for r in results if r["final_score"] > 0.1][:5]
+    matches = [r for r in results if r["final_score"] > 0.1]
+    total = len(results)
 
-    if not top:
+    # Search summary
+    console.print(f"\n[bold]Search Summary:[/] {total} hotels searched, "
+                  f"{len(matches)} potential match{'es' if len(matches) != 1 else ''}")
+
+    if not matches:
         console.print("[yellow]No hotels found with a match score above 10%.[/]")
+        console.print(f"\n[dim]Hotels searched: {', '.join(r['hotel_name'] for r in results[:20])}[/]")
         return
+
+    top = matches[:5]
 
     table = Table(box=box.ROUNDED, show_header=True, header_style="bold cyan", expand=True)
     table.add_column("Rank", width=4)
